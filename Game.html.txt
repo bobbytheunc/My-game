@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Waves</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #0b0b16;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 20px rgba(0, 255, 204, 0.3);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        canvas {
+            background: #05050d;
+            display: block;
+        }
+
+        .controls-hint {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #8a8a8a;
+        }
+
+        kbd {
+            background-color: #222;
+            border: 1px solid #444;
+            border-radius: 3px;
+            padding: 2px 6px;
+            color: #00ffcc;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="600" height="700"></canvas>
+    </div>
+    <div class="controls-hint">
+        Use <kbd>←</kbd> <kbd>→</kbd> or <kbd>A</kbd> <kbd>D</kbd> to move | <kbd>Space</kbd> to shoot
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Game State Variables
+        let score = 0;
+        let wave = 1;
+        let gameOver = false;
+        let keys = {};
+
+        // Player Config
+        const player = {
+            x: canvas.width / 2 - 20,
+            y: canvas.height - 50,
+            width: 40,
+            height: 20,
+            speed: 6,
+            color: '#00ffcc',
+            cooldown: 0
+        };
+
+        // Arrays for entities
+        let bullets = [];
+        let enemies = [];
+        let particles = [];
+
+        // Input Listeners
+        window.addEventListener('keydown', (e) => keys[e.code] = true);
+        window.addEventListener('keyup', (e) => keys[e.code] = false);
+
+        // Particle System for Hits
+        function createExplosion(x, y, color) {
+            for (let i = 0; i < 12; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 6,
+                    vy: (Math.random() - 0.5) * 6,
+                    radius: Math.random() * 3 + 1,
+                    alpha: 1,
+                    color: color
+                });
+            }
+        }
+
+        // Spawn a Wave of Enemies
+        function spawnWave() {
+            enemies = [];
+            const rows = 3 + Math.min(wave, 3);
+            const cols = 8;
+            const spacingX = 55;
+            const spacingY = 40;
+            const startX = (canvas.width - (cols * spacingX)) / 2 + 10;
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    enemies.push({
+                        x: startX + c * spacingX,
+                        y: 50 + r * spacingY,
+                        width: 30,
+                        height: 20,
+                        speed: 1 + (wave * 0.2),
+                        direction: 1,
+                        color: r % 2 === 0 ? '#ff0055' : '#ff9900'
+                    });
+                }
+            }
+        }
+
+        // Game Loop Update logic
+        function update() {
+            if (gameOver) {
+                if (keys['Space']) resetGame();
+                return;
+            }
+
+            // Player Movement
+            if ((keys['ArrowLeft'] || keys['KeyA']) && player.x > 0) {
+                player.x -= player.speed;
+            }
+            if ((keys['ArrowRight'] || keys['KeyD']) && player.x + player.width < canvas.width) {
+                player.x += player.speed;
+            }
+
+            // Shooting
+            if (player.cooldown > 0) player.cooldown--;
+            if (keys['Space'] && player.cooldown === 0) {
+                bullets.push({
+                    x: player.x + player.width / 2 - 2,
+                    y: player.y,
+                    width: 4,
+                    height: 12,
+                    speed: 8
+                });
+                player.cooldown = 12; // Controls fire rate
+            }
+
+            // Update Bullets
+            bullets.forEach((b, index) => {
+                b.y -= b.speed;
+                if (b.y < 0) bullets.splice(index, 1);
+            });
+
+            // Enemy Movement (Side to side, stepping down on edge hit)
+            let reachEdge = false;
+            enemies.forEach(e => {
+                e.x += e.speed * e.direction;
+                if (e.x + e.width >= canvas.width - 10 || e.x <= 10) {
+                    reachEdge = true;
+                }
+            });
+
+            if (reachEdge) {
+                enemies.forEach(e => {
+                    e.direction *= -1;
+                    e.y += 15;
+                    // Game Over if enemies reach player baseline
+                    if (e.y + e.height >= player.y) {
+                        gameOver = true;
+                    }
+                });
+            }
+
+            // Collision Detection: Bullet vs Enemy
+            bullets.forEach((b, bIndex) => {
+                enemies.forEach((e, eIndex) => {
+                    if (
+                        b.x < e.x + e.width &&
+                        b.x + b.width > e.x &&
+                        b.y < e.y + e.height &&
+                        b.y + b.height > e.y
+                    ) {
+                        createExplosion(e.x + e.width / 2, e.y + e.height / 2, e.color);
+                        enemies.splice(eIndex, 1);
+                        bullets.splice(bIndex, 1);
+                        score += 10;
+                    }
+                });
+            });
+
+            // Update Explosions
+            particles.forEach((p, index) => {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.alpha -= 0.03;
+                if (p.alpha <= 0) particles.splice(index, 1);
+            });
+
+            // Wave Clear Check
+            if (enemies.length === 0) {
+                wave++;
+                spawnWave();
+            }
+        }
+
+        // Render Frame
+        function draw() {
+            // Clear Canvas
+            ctx.fillStyle = '#05050d';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Player Ship
+            ctx.fillStyle = player.color;
+            ctx.beginPath();
+            ctx.moveTo(player.x + player.width / 2, player.y);
+            ctx.lineTo(player.x, player.y + player.height);
+            ctx.lineTo(player.x + player.width, player.y + player.height);
+            ctx.closePath();
+            ctx.fill();
+
+            // Draw Bullets
+            ctx.fillStyle = '#ffff00';
+            bullets.forEach(b => ctx.fillRect(b.x, b.y, b.width, b.height));
+
+            // Draw Enemies
+            enemies.forEach(e => {
+                ctx.fillStyle = e.color;
+                ctx.fillRect(e.x, e.y, e.width, e.height);
+            });
+
+            // Draw Particles
+            particles.forEach(p => {
+                ctx.save();
+                ctx.globalAlpha = p.alpha;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+
+            // Draw UI (Score and Wave)
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '16px monospace';
+            ctx.fillText(`SCORE: ${score}`, 20, 30);
+            ctx.fillText(`WAVE: ${wave}`, canvas.width - 100, 30);
+
+            // Draw Game Over Screen
+            if (gameOver) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.fillStyle = '#ff0055';
+                ctx.font = '36px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 20);
+
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '16px monospace';
+                ctx.fillText('Press SPACE to Restart', canvas.width / 2, canvas.height / 2 + 30);
+                ctx.textAlign = 'start';
+            }
+        }
+
+        function resetGame() {
+            score = 0;
+            wave = 1;
+            gameOver = false;
+            bullets = [];
+            particles = [];
+            player.x = canvas.width / 2 - 20;
+            spawnWave();
+        }
+
+        // Main Loop
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        // Start Game
+        spawnWave();
+        loop();
+    </script>
+</body>
+</html>
